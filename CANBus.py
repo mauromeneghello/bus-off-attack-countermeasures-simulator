@@ -1,6 +1,7 @@
 import random
 import time
 from collections import deque
+import threading
 
 class CanPacket:
     def __init__(self, ID, data):
@@ -58,56 +59,82 @@ class CanBus:
         self.listeners = []  # List of ECUs listening to the bus
         self.idle = True
         self.send_queue = deque()  # Queue of (packet, sender_ecu)
+        self.lock = threading.Lock()
+        self.condition = threading.Condition(self.lock)
 
     def register_ecu(self, ecu):
         """ Registers an ECU to listen on the CAN bus. """
         self.listeners.append(ecu)
 
     def send(self, packet, sender_ecu):
-        """ Handles send requests: send immediately if idle, else queue it. """
+        """ Handles send requests: send immediately if idle, else wait for bus to become idle. """
+
         if sender_ecu.is_bus_off():
             print(f"{sender_ecu.name} is in BUS-OFF! Cannot send: {packet}")
             return
 
-        if not self.idle:
-            print(f"{sender_ecu.name} wants to send, but bus is BUSY. Queuing packet.")
+        with self.condition:
             self.send_queue.append((packet, sender_ecu))
-            return
 
-        # Start arbitration when the bus is idle
+            # Wait until the bus is idle
+            while not self.idle:
+                print(f"\n{sender_ecu.name} waiting: BUS is BUSY. Queued packet.")
+                self.condition.wait()  # Wait until notified
+
+        # Now the bus is idle
         self._start_arbitration()
 
     def _start_arbitration(self):
-        """ Start the arbitration process if multiple ECUs are queued. """
-        if self.send_queue:
+        """ Start arbitration and transmit only one message. """
+        with self.lock:  # Make sure only one arbitration runs at a time
+            if not self.send_queue:
+                self.idle = True
+                with self.condition:
+                    self.condition.notify_all()
+                return
+
             print("Starting arbitration...")
 
-            # Check competing ECUs (those waiting in the queue)
-            competing_ecus = [(packet, ecu) for packet, ecu in self.send_queue]
-            competing_ecus.sort(key=lambda item: item[0].ID)  # Sort by arbitration ID (lowest wins)
+            competing_ecus = list(self.send_queue)
+            print("ECU competing: ", [ecu.name for _, ecu in competing_ecus])
+            competing_ecus.sort(key=lambda item: item[0].ID)
 
-            # The first ECU in the sorted list is the winner
             winner_packet, winner_ecu = competing_ecus[0]
             print(f"Arbitration Winner: {winner_ecu.name} with ID {hex(winner_packet.ID)}")
 
-            # Transmit the winning ECU's packet
-            self._transmit(winner_packet, winner_ecu)
+            # Remove winner from the queue
+            self.send_queue = deque([item for item in self.send_queue if item[1] != winner_ecu])
 
-            # Remove only the winning ECU from the queue
-            self.send_queue = deque([item for item in competing_ecus[1:]])
-            
-            # If there are any ECUs left, process the next message
-            self._process_queue()
+        self._transmit(winner_packet, winner_ecu)
 
     def _transmit(self, packet, sender_ecu):
         """ Internal method to transmit a packet bit by bit. """
-        self.idle = False
+
+        with self.condition:
+            self.idle = False
+
         bits = packet.to_bits()
 
         print(f"\n{sender_ecu.name} STARTS transmitting bit by bit:")
-        for idx, bit in enumerate(bits):
-            print(f" Bit {idx:03}: {bit}")
-            time.sleep(0.001)  # Simulated bit time
+
+        # Define the segments and their lengths
+        segment_lengths = {
+            "SoF": 1,
+            "ID": 11,
+            "Control": 5,  # 1 bit RTR + 4 bit DLC
+            "Data": len(packet.data) * 8,
+            "CRC": 15,
+            "ACK": 2,
+            "EOF": 7
+        }
+
+        idx = 0
+        for name, length in segment_lengths.items():
+            print(f"\n--- {name} ---")
+            for i in range(length):
+                print(f" Bit {idx:03}: {bits[idx]}")
+                time.sleep(1)  # Reduce sleep time for quicker output (adjust as needed)
+                idx += 1
 
         print(f"{sender_ecu.name} Transmission COMPLETE.\n")
 
@@ -116,15 +143,9 @@ class CanBus:
             if ecu != sender_ecu:
                 ecu.receive(packet)
 
-        self.idle = True
-        self._process_queue()
-
-    def _process_queue(self):
-        """ Process the next message in the queue if available. """
-        if self.send_queue and self.idle:
-            next_packet, next_sender = self.send_queue.popleft()
-            print(f"Dequeued message from {next_sender.name}, preparing to send...")
-            self._start_arbitration()  # Call arbitration again after dequeuing
+        with self.condition:
+            self.idle = True
+            self.condition.notify_all()  # Wake up waiting threads
 
     def send_error_flag(self, error_flag_bits, sender_ecu):
         """ Simulates sending an error flag on the CAN bus. """
@@ -168,10 +189,10 @@ class ECU:
         packet = CanPacket(self.arbitration_id, data)
 
         # Simulate a bit error with 10% probability
-        if random.random() < 0.1:  
+        """if random.random() < 0.1:  
             print(f"{self.name} BIT ERROR detected! Sending ERROR FLAG...")
             self.send_error_flag()
-            return
+            return"""
 
         self.can_bus.send(packet, self)
         self.TEC = max(0, self.TEC - 1)  # Decrease TEC on successful transmission
@@ -181,11 +202,11 @@ class ECU:
     def receive(self, packet):
         """ Handles incoming CAN messages and detects errors. """
         # Simulate reception error (10% chance)
-        if random.random() < 0.1:
+        """if random.random() < 0.1:
             print(f"{self.name} BIT ERROR detected in received message! Sending ERROR FLAG...")
             self.REC += 8  # Bit errors increase REC
             self.send_error_flag()
-            return
+            return"""
 
         self.REC = max(0, self.REC - 1)  # Decrease REC on successful reception
         self.update_error_state()

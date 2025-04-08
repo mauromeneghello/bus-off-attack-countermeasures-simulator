@@ -1,5 +1,6 @@
 import time
 from CANBus import *
+import threading
 
 if __name__ == "__main__":
     # Initialize CAN bus
@@ -11,20 +12,29 @@ if __name__ == "__main__":
     ecu3 = ECU("ECU3", can_bus, arbitration_id=0x200)
     ecu4 = ECU("ECU4", can_bus, arbitration_id=0x050)  # Highest priority
 
-    # Simulate sending packets
-    print("\n--- Sending Packets ---\n")
+    # Simulate sending packets in parallel
+    print("\n--- Sending Packets in Parallel ---\n")
 
-    # ECU1 sends a message
-    ecu1.send([0x11, 0x22])
+    # Define threads for each ECU's send
+    t1 = threading.Thread(target=ecu1.send, args=([0x11, 0x22],))
+    time.sleep(1)
+    t2 = threading.Thread(target=ecu2.send, args=([0x33, 0x44],))
+    time.sleep(0.1)
+    t3 = threading.Thread(target=ecu3.send, args=([0x55, 0x66, 0x77],))
+    time.sleep(0.3)
+    t4 = threading.Thread(target=ecu4.send, args=([0xAA],))
 
-    # ECU2 tries to send while ECU1 is transmitting
-    ecu2.send([0x33, 0x44])
+    # Start all threads
+    t1.start()
+    t2.start()
+    t3.start()
+    t4.start()
 
-    # ECU3 also tries to send during the same busy period
-    ecu3.send([0x55, 0x66, 0x77])
+    # Wait for all to complete
+    t1.join()
+    t2.join()
+    t3.join()
+    t4.join()
 
-    # ECU4 tries to send (has highest priority arbitration ID)
-    ecu4.send([0xAA])
-
-    # Give time for all queued packets to finish transmitting
+    # Give time for the bus to finish transmitting any remaining packets
     time.sleep(5)
