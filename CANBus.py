@@ -1,65 +1,137 @@
 import random
 import time
+from collections import deque
 
 class CanPacket:
-    """ Represents a CAN packet with an ID, data, and timestamp. """
-    def __init__(self, arbitration_id, data):
-        self.arbitration_id = arbitration_id  # Message ID
-        self.data = data                      # Data payload (bytes)
-        self.timestamp = time.time()          # Timestamp when created
+    def __init__(self, ID, data):
+        self.sof = 0  # Start of Frame: Dominant bit (0)
+        self.ID = ID  # Frame identifier
+        self.dlc = len(data)  # Data Length Code (DLC) from 0 to 8 bytes
+        self.data = data  # Data payload (up to 8 bytes)
+        self.rtr = 0  # Remote Transmission Request: 0 means sending data
+        self.crc = '101010101010101'  # Example CRC (placeholder, 15 bits)
+        self.ack = [1, 1]  # ACK field, placeholder for 2 recessive bits
+        self.eof = [1] * 7  # End of Frame: 7 recessive bits (EOF)
+
+    def to_bits(self):
+        """ Serializes the CAN packet to a list of bits for transmission """
+        bits = []
+
+        # 1. Start of Frame (SoF)
+        bits.append(0)  # Dominant bit (SoF)
+
+        # 2. 11-bit Identifier (ID)
+        id_bits = format(self.ID, '011b')
+        bits.extend(int(b) for b in id_bits)
+
+        # 3. Control Field: 
+        #    - RTR: 1 bit
+        #    - DLC: 4 bits
+        control_bits = [self.rtr]  # RTR bit
+        control_bits.extend(int(b) for b in format(self.dlc, '04b'))  # DLC (4 bits)
+        bits.extend(control_bits)
+
+        # 4. Data Field: Convert each byte of data to 8 bits
+        for byte in self.data:
+            byte_bits = format(byte, '08b')
+            bits.extend(int(b) for b in byte_bits)
+
+        # 5. CRC Field: 15 bits (this is just a placeholder CRC for now)
+        crc_bits = self.crc  # Placeholder CRC (15 bits)
+        bits.extend(int(b) for b in crc_bits)
+
+        # 6. ACK Slot: 2 recessive bits (placeholder, 1 for delimiter)
+        bits.extend(self.ack)
+
+        # 7. End of Frame (EOF): 7 recessive bits
+        bits.extend(self.eof)
+
+        return bits
 
     def __repr__(self):
-        return f"CAN Packet(ID={hex(self.arbitration_id)}, Data={self.data}, Time={self.timestamp:.3f})"
+        return f"CAN Packet(ID={hex(self.ID)}, Data={self.data}, DLC={self.dlc})"
 
 
 class CanBus:
     """ Simulates a CAN bus where ECUs send and receive messages with error handling. """
     def __init__(self):
         self.listeners = []  # List of ECUs listening to the bus
+        self.idle = True
+        self.send_queue = deque()  # Queue of (packet, sender_ecu)
 
     def register_ecu(self, ecu):
         """ Registers an ECU to listen on the CAN bus. """
         self.listeners.append(ecu)
 
     def send(self, packet, sender_ecu):
-        """ Simulates sending a CAN packet with error handling. """
+        """ Handles send requests: send immediately if idle, else queue it. """
         if sender_ecu.is_bus_off():
             print(f"{sender_ecu.name} is in BUS-OFF! Cannot send: {packet}")
             return
 
-        print(f"CAN Bus Transmitting: {packet}")
+        if not self.idle:
+            print(f"{sender_ecu.name} wants to send, but bus is BUSY. Queuing packet.")
+            self.send_queue.append((packet, sender_ecu))
+            return
 
-        # Notify all ECUs that a message was sent
+        # Start arbitration when the bus is idle
+        self._start_arbitration()
+
+    def _start_arbitration(self):
+        """ Start the arbitration process if multiple ECUs are queued. """
+        if self.send_queue:
+            print("Starting arbitration...")
+
+            # Check competing ECUs (those waiting in the queue)
+            competing_ecus = [(packet, ecu) for packet, ecu in self.send_queue]
+            competing_ecus.sort(key=lambda item: item[0].ID)  # Sort by arbitration ID (lowest wins)
+
+            # The first ECU in the sorted list is the winner
+            winner_packet, winner_ecu = competing_ecus[0]
+            print(f"Arbitration Winner: {winner_ecu.name} with ID {hex(winner_packet.ID)}")
+
+            # Transmit the winning ECU's packet
+            self._transmit(winner_packet, winner_ecu)
+
+            # Remove only the winning ECU from the queue
+            self.send_queue = deque([item for item in competing_ecus[1:]])
+            
+            # If there are any ECUs left, process the next message
+            self._process_queue()
+
+    def _transmit(self, packet, sender_ecu):
+        """ Internal method to transmit a packet bit by bit. """
+        self.idle = False
+        bits = packet.to_bits()
+
+        print(f"\n{sender_ecu.name} STARTS transmitting bit by bit:")
+        for idx, bit in enumerate(bits):
+            print(f" Bit {idx:03}: {bit}")
+            time.sleep(0.001)  # Simulated bit time
+
+        print(f"{sender_ecu.name} Transmission COMPLETE.\n")
+
+        # Notify all other ECUs
         for ecu in self.listeners:
             if ecu != sender_ecu:
                 ecu.receive(packet)
 
-        # Simulate the arbitration phase (priority is based on the arbitration ID)
-        self.arbitrate(packet, sender_ecu)
+        self.idle = True
+        self._process_queue()
 
-    def arbitrate(self, packet, sender_ecu):
-        """ Simulates CAN arbitration (based on arbitration ID) """
-        print(f"Arbitration in progress for {sender_ecu.name} with ID {hex(packet.arbitration_id)}")
+    def _process_queue(self):
+        """ Process the next message in the queue if available. """
+        if self.send_queue and self.idle:
+            next_packet, next_sender = self.send_queue.popleft()
+            print(f"Dequeued message from {next_sender.name}, preparing to send...")
+            self._start_arbitration()  # Call arbitration again after dequeuing
 
-        # First, sort all ECUs by arbitration ID (lowest priority ID wins arbitration)
-        competing_ecus = [ecu for ecu in self.listeners if ecu != sender_ecu and not ecu.is_bus_off()]
-        competing_ecus.append(sender_ecu)
-
-        # Sort ECUs by their arbitration ID (ascending order, lowest wins)
-        competing_ecus.sort(key=lambda ecu: ecu.arbitration_id)
-
-        # The ECU with the lowest ID wins the arbitration
-        winner_ecu = competing_ecus[0]
-        print(f"Arbitration Winner: {winner_ecu.name} with ID {hex(winner_ecu.arbitration_id)}")
-        
-        # Notify all ECUs about the message
+    def send_error_flag(self, error_flag_bits, sender_ecu):
+        """ Simulates sending an error flag on the CAN bus. """
+        print(f"CAN BUS: ERROR FLAG sent by {sender_ecu.name} -> {''.join(map(str, error_flag_bits))}")
         for ecu in self.listeners:
-            if ecu != winner_ecu:
-                ecu.receive(packet)
-
-        winner_ecu.TEC = max(0, winner_ecu.TEC - 1)  # Decrease TEC for the winner
-        winner_ecu.update_error_state()
-        print(f"{winner_ecu.name} Sent: {packet} | TEC: {winner_ecu.TEC} | State: {winner_ecu.error_state}")
+            if ecu != sender_ecu:
+                ecu.on_error_detected()
 
 
 class ECU:
@@ -120,14 +192,22 @@ class ECU:
         print(f"{self.name} Received: {packet} | REC: {self.REC} | State: {self.error_state}")
 
     def send_error_flag(self):
-        """ Sends an error flag based on error state (Active or Passive). """
+        """ Sends an error flag and notifies the bus and other ECUs. """
         if self.error_state == "ERROR-ACTIVE":
             print(f"{self.name} SENDING ACTIVE ERROR FLAG (Dominant bits)")
-            self.TEC += 8  # Error-Active flag increases TEC by 8
+            self.TEC += 8
+            error_flag = [0] * 6  # 6 dominant bits
         elif self.error_state == "ERROR-PASSIVE":
             print(f"{self.name} SENDING PASSIVE ERROR FLAG (Recessive bits)")
-            self.TEC += 1  # Passive error flag increases TEC by 1
+            self.TEC += 1
+            error_flag = [1] * 6  # 6 recessive bits
+        else:
+            return
+
         self.update_error_state()
+
+        # Send error flag to the bus
+        self.can_bus.send_error_flag(error_flag, sender_ecu=self)
 
     def recover_from_bus_off(self):
         """ Simulates automatic recovery from BUS-OFF mode. """
@@ -138,3 +218,9 @@ class ECU:
             self.REC = 0
             self.error_state = "ERROR-ACTIVE"
             print(f"{self.name} RECOVERED from BUS-OFF!")
+    
+    def on_error_detected(self):
+        """ React to an error flag on the bus (e.g., increase REC). """
+        print(f"{self.name} detected ERROR FLAG on bus! Incrementing REC.")
+        self.REC += 1  # or more, depending on how severe you want the simulation
+        self.update_error_state()
