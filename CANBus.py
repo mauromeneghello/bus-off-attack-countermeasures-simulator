@@ -133,7 +133,7 @@ class CanBus:
             print(f"\n--- {name} ---")
             for i in range(length):
                 print(f" Bit {idx:03}: {bits[idx]}")
-                time.sleep(1)  # Reduce sleep time for quicker output (adjust as needed)
+                time.sleep(0.0001)  # Reduce sleep time for quicker output (adjust as needed)
                 idx += 1
 
         print(f"{sender_ecu.name} Transmission COMPLETE.\n")
@@ -165,6 +165,7 @@ class ECU:
         self.TEC = 0  # Transmit Error Counter
         self.REC = 0  # Receive Error Counter
         self.error_state = "ERROR-ACTIVE"  # ERROR-ACTIVE, ERROR-PASSIVE, BUS-OFF
+        self.can_inject_error = False
 
     def update_error_state(self):
         """ Updates the ECU's error state based on TEC and REC. """
@@ -197,20 +198,48 @@ class ECU:
         self.can_bus.send(packet, self)
         self.TEC = max(0, self.TEC - 1)  # Decrease TEC on successful transmission
         self.update_error_state()
-        print(f"{self.name} Sent: {packet} | TEC: {self.TEC} | State: {self.error_state}")
+        print(f"{self.name} Sent: {packet} | TEC: {self.TEC} | REC: {self.REC}| State: {self.error_state}")
+
+    # def receive(self, packet):
+    #     """ Handles incoming CAN messages and detects errors. """
+    #     # Simulate reception error (10% chance)
+    #     """if random.random() < 0.1:
+    #         print(f"{self.name} BIT ERROR detected in received message! Sending ERROR FLAG...")
+    #         self.REC += 8  # Bit errors increase REC
+    #         self.send_error_flag()
+    #         return"""
+
+    #     self.REC = max(0, self.REC - 1)  # Decrease REC on successful reception
+    #     self.update_error_state()
+    #     print(f"{self.name} Received: {packet} | REC: {self.REC} | TEC: {self.TEC} | State: {self.error_state}")
 
     def receive(self, packet):
-        """ Handles incoming CAN messages and detects errors. """
-        # Simulate reception error (10% chance)
-        """if random.random() < 0.1:
-            print(f"{self.name} BIT ERROR detected in received message! Sending ERROR FLAG...")
-            self.REC += 8  # Bit errors increase REC
-            self.send_error_flag()
-            return"""
+        if packet.ID == 0x555 and self.name == "Victim":
+            if self.error_state == "ERROR-ACTIVE":
+                print(f"{self.name} BIT ERROR (ACTIVE)! → TEC +8 → Send Active Error Flag")
+                self.TEC += 8
+                self.send_error_flag()
+            elif self.error_state == "ERROR-PASSIVE":
+                print(f"{self.name} BIT ERROR (PASSIVE)! → TEC +8 → Send Passive Error Flag")
+                self.TEC += 8
+                self.send_error_flag()
+            self.update_error_state()
+            return  # Simula interruzione ricezione
 
-        self.REC = max(0, self.REC - 1)  # Decrease REC on successful reception
+        if packet.ID == 0x555 and self.name == "Attacker":
+            if self.can_inject_error:
+                print(f"{self.name} receives error → TEC +8 → Send Second Error Flag")
+                self.TEC += 8
+                self.send_error_flag()
+            else:
+                self.TEC = max(0, self.TEC - 1)  # trasmissione riuscita → TEC -1
+            self.update_error_state()
+            return
+
+        # Normale ricezione
+        self.REC = max(0, self.REC - 1)
         self.update_error_state()
-        print(f"{self.name} Received: {packet} | REC: {self.REC} | State: {self.error_state}")
+        print(f"{self.name} Received: {packet}| TEC: {self.TEC}  | REC: {self.REC} | State: {self.error_state}")
 
     def send_error_flag(self):
         """ Sends an error flag and notifies the bus and other ECUs. """
