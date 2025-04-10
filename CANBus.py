@@ -61,6 +61,7 @@ class CanBus:
         self.send_queue = deque()  # Queue of (packet, sender_ecu)
         self.lock = threading.Lock()
         self.condition = threading.Condition(self.lock)
+        self.recent_successful_ids = {}
 
     def register_ecu(self, ecu):
         """ Registers an ECU to listen on the CAN bus. """
@@ -68,6 +69,8 @@ class CanBus:
 
     def send(self, packet, sender_ecu):
         """ Handles send requests: send immediately if idle, else wait for bus to become idle. """
+
+        self.recent_successful_ids[packet.ID] = sender_ecu.name
 
         if sender_ecu.is_bus_off():
             print(f"{sender_ecu.name} is in BUS-OFF! Cannot send: {packet}")
@@ -133,7 +136,7 @@ class CanBus:
             print(f"\n--- {name} ---")
             for i in range(length):
                 print(f" Bit {idx:03}: {bits[idx]}")
-                time.sleep(0.0001)  # Reduce sleep time for quicker output (adjust as needed)
+                time.sleep(0.01)  # Reduce sleep time for quicker output (adjust as needed)
                 idx += 1
 
         print(f"{sender_ecu.name} Transmission COMPLETE.\n")
@@ -157,7 +160,7 @@ class CanBus:
 
 class ECU:
     """ Represents an ECU with error handling and error flag management. """
-    def __init__(self, name, can_bus, arbitration_id):
+    def __init__(self, name, can_bus, arbitration_id, enable_defense = False):
         self.name = name
         self.can_bus = can_bus
         self.arbitration_id = arbitration_id  # Unique ID for sending messages
@@ -166,6 +169,9 @@ class ECU:
         self.REC = 0  # Receive Error Counter
         self.error_state = "ERROR-ACTIVE"  # ERROR-ACTIVE, ERROR-PASSIVE, BUS-OFF
         self.can_inject_error = False
+        self.enable_defense = enable_defense  # turn on/off countermeasures
+        self.consecutive_error_frames = 0     # to check F1 (from the paper)
+        self.last_failed_id = None            # to check F2 (from the paper)
 
     def update_error_state(self):
         """ Updates the ECU's error state based on TEC and REC. """
@@ -218,13 +224,13 @@ class ECU:
             if self.error_state == "ERROR-ACTIVE":
                 print(f"{self.name} BIT ERROR (ACTIVE)! → TEC +8 → Send Active Error Flag")
                 self.TEC += 8
-                self.send_error_flag()
+                self.send_error_flag(packet.ID)
             elif self.error_state == "ERROR-PASSIVE":
                 print(f"{self.name} BIT ERROR (PASSIVE)! → TEC +8 → Send Passive Error Flag")
                 self.TEC += 8
-                self.send_error_flag()
+                self.send_error_flag(packet.ID)
             self.update_error_state()
-            return  # Simula interruzione ricezione
+            return  # stop receiving
 
         if packet.ID == 0x555 and self.name == "Attacker":
             if self.can_inject_error:
@@ -232,17 +238,21 @@ class ECU:
                 self.TEC += 8
                 self.send_error_flag()
             else:
-                self.TEC = max(0, self.TEC - 1)  # trasmissione riuscita → TEC -1
+                self.TEC = max(0, self.TEC - 1)  # transmission successful → TEC -1
             self.update_error_state()
             return
 
-        # Normale ricezione
+        # normal
         self.REC = max(0, self.REC - 1)
         self.update_error_state()
         print(f"{self.name} Received: {packet}| TEC: {self.TEC}  | REC: {self.REC} | State: {self.error_state}")
 
-    def send_error_flag(self):
+    def send_error_flag(self, failed_id=None):
         """ Sends an error flag and notifies the bus and other ECUs. """
+        
+        self.consecutive_error_frames += 1
+        self.last_failed_id = failed_id
+        
         if self.error_state == "ERROR-ACTIVE":
             print(f"{self.name} SENDING ACTIVE ERROR FLAG (Dominant bits)")
             self.TEC += 8
@@ -251,6 +261,15 @@ class ECU:
             print(f"{self.name} SENDING PASSIVE ERROR FLAG (Recessive bits)")
             self.TEC += 1
             error_flag = [1] * 6  # 6 recessive bits
+
+
+            # === COUNTERMEASURE CHECK: F1 + F2 ===
+            if self.enable_defense and self.consecutive_error_frames >= 16:
+                if failed_id and failed_id in self.can_bus.recent_successful_ids:
+                    sender = self.can_bus.recent_successful_ids[failed_id]
+                    if sender != self.name:
+                        print(f"{self.name} DETECTED BUS-OFF ATTACK (F1+F2) → Resetting ECU")
+                        self.recover_from_bus_off()
         else:
             return
 
@@ -261,12 +280,14 @@ class ECU:
 
     def recover_from_bus_off(self):
         """ Simulates automatic recovery from BUS-OFF mode. """
-        if self.is_bus_off():
+
+        if self.is_bus_off() or self.enable_defense:
             print(f"{self.name} attempting recovery from BUS-OFF...")
             time.sleep(2)  # Simulate recovery delay
             self.TEC = 0
             self.REC = 0
             self.error_state = "ERROR-ACTIVE"
+            self.consecutive_error_frames = 0
             print(f"{self.name} RECOVERED from BUS-OFF!")
     
     def on_error_detected(self):
