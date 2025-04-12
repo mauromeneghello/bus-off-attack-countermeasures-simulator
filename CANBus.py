@@ -202,7 +202,7 @@ class ECU:
             return"""
 
         self.can_bus.send(packet, self)
-        self.TEC = max(0, self.TEC - 1)  # Decrease TEC on successful transmission
+        # self.TEC = max(0, self.TEC - 1)  # Decrease TEC on successful transmission
         self.update_error_state()
         print(f"{self.name} Sent: {packet} | TEC: {self.TEC} | REC: {self.REC}| State: {self.error_state}")
 
@@ -223,11 +223,11 @@ class ECU:
         if packet.ID == 0x555 and self.name == "Victim":
             if self.error_state == "ERROR-ACTIVE":
                 print(f"{self.name} BIT ERROR (ACTIVE)! → TEC +8 → Send Active Error Flag")
-                self.TEC += 8
+                # self.TEC += 8
                 self.send_error_flag(packet.ID)
             elif self.error_state == "ERROR-PASSIVE":
                 print(f"{self.name} BIT ERROR (PASSIVE)! → TEC +8 → Send Passive Error Flag")
-                self.TEC += 8
+                # self.TEC += 8
                 self.send_error_flag(packet.ID)
             self.update_error_state()
             return  # stop receiving
@@ -235,10 +235,10 @@ class ECU:
         if packet.ID == 0x555 and self.name == "Attacker":
             if self.can_inject_error:
                 print(f"{self.name} receives error → TEC +8 → Send Second Error Flag")
-                self.TEC += 8
+                # self.TEC += 8
                 self.send_error_flag()
-            else:
-                self.TEC = max(0, self.TEC - 1)  # transmission successful → TEC -1
+            # else:
+                # self.TEC = max(0, self.TEC - 1)  # transmission successful → TEC -1
             self.update_error_state()
             return
 
@@ -259,7 +259,7 @@ class ECU:
             error_flag = [0] * 6  # 6 dominant bits
         elif self.error_state == "ERROR-PASSIVE":
             print(f"{self.name} SENDING PASSIVE ERROR FLAG (Recessive bits)")
-            self.TEC += 1
+            self.TEC += 8
             error_flag = [1] * 6  # 6 recessive bits
 
 

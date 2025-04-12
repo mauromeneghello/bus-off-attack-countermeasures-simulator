@@ -6,7 +6,7 @@ def bus_off_attack():
     print("\n--- SIMULATION: BUS-OFF ATTACK ---\n")
 
     can_bus = CanBus()
-    victim = ECU("Victim", can_bus, arbitration_id=0x555, enable_defense=True)     # set enable_defense to true to turn on countermeasures
+    victim = ECU("Victim", can_bus, arbitration_id=0x555, enable_defense=False)     # set enable_defense to true to turn on countermeasures
     attacker = ECU("Attacker", can_bus, arbitration_id=0x555)
     attacker.can_inject_error = True  # turn on attack
 
@@ -30,7 +30,7 @@ def bus_off_attack():
         elif phase == "PHASE1to2":
             if attacker.TEC <= 127:
                 print("\n[->] Transition to PHASE2")
-                attacker.can_inject_error = True  # restart forcing errors
+                attacker.can_inject_error = False  # restart forcing errors
                 phase = "PHASE2"
         elif phase == "PHASE2":
             if victim.TEC == 0:
