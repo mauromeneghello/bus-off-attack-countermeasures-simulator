@@ -52,7 +52,6 @@ class CanPacket:
     def __repr__(self):
         return f"CAN Packet(ID={hex(self.ID)}, Data={self.data}, DLC={self.dlc})"
 
-
 class CanBus:
     """ Simulates a CAN bus where ECUs send and receive messages with error handling. """
     def __init__(self):
@@ -227,7 +226,7 @@ class ECU:
                 self.send_error_flag(packet.ID)
             elif self.error_state == "ERROR-PASSIVE":
                 print(f"{self.name} BIT ERROR (PASSIVE)! → TEC +8 → Send Passive Error Flag")
-                # self.TEC += 8
+                self.TEC -= 1
                 self.send_error_flag(packet.ID)
             self.update_error_state()
             return  # stop receiving
@@ -237,8 +236,8 @@ class ECU:
                 print(f"{self.name} receives error → TEC +8 → Send Second Error Flag")
                 # self.TEC += 8
                 self.send_error_flag()
-            # else:
-                # self.TEC = max(0, self.TEC - 1)  # transmission successful → TEC -1
+            else:
+                self.TEC = max(0, self.TEC - 1)  # transmission successful → TEC -1
             self.update_error_state()
             return
 

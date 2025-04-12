@@ -6,7 +6,7 @@ def bus_off_attack():
     print("\n--- SIMULATION: BUS-OFF ATTACK ---\n")
 
     can_bus = CanBus()
-    victim = ECU("Victim", can_bus, arbitration_id=0x555, enable_defense=False)     # set enable_defense to true to turn on countermeasures
+    victim = ECU("Victim", can_bus, arbitration_id=0x555, enable_defense=True)     # set enable_defense to true to turn on countermeasures
     attacker = ECU("Attacker", can_bus, arbitration_id=0x555)
     attacker.can_inject_error = True  # turn on attack
 
