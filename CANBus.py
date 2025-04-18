@@ -130,13 +130,13 @@ class CanBus:
             "EOF": 7
         }
 
-        idx = 0
+        """idx = 0
         for name, length in segment_lengths.items():
             print(f"\n--- {name} ---")
             for i in range(length):
                 print(f" Bit {idx:03}: {bits[idx]}")
                 time.sleep(0.01)  # Reduce sleep time for quicker output (adjust as needed)
-                idx += 1
+                idx += 1"""
 
         print(f"{sender_ecu.name} Transmission COMPLETE.\n")
 
@@ -186,10 +186,24 @@ class ECU:
         """ Checks if the ECU is in BUS-OFF state. """
         return self.error_state == "BUS-OFF"
 
-    def send(self, data):
+    def send(self, data, retransmission = False):
         """ Creates and sends a CAN message, handling errors. """
         if self.is_bus_off():
             print(f"{self.name} is in BUS-OFF! Cannot send.")
+            return
+        
+        if retransmission:
+            # Successful retransmission (detected by the phase logic)
+            if self.error_state == "ERROR-PASSIVE":
+                self.TEC = max(0, self.TEC - 1)
+                self.update_error_state()
+                print(f"{self.name} successfully retransmitted. TEC reduced to {self.TEC}")
+            return
+
+        if retransmission:
+            if self.error_state == "ERROR_PASSIVE":
+                self.TEC = max(0, self.TEC - 1)
+                print(f"{self.name} successfully retransmitted. TEC reduced to {self.TEC}")
             return
 
         packet = CanPacket(self.arbitration_id, data)
@@ -226,7 +240,7 @@ class ECU:
                 self.send_error_flag(packet.ID)
             elif self.error_state == "ERROR-PASSIVE":
                 print(f"{self.name} BIT ERROR (PASSIVE)! → TEC +8 → Send Passive Error Flag")
-                self.TEC -= 1
+                #self.TEC -= 1
                 self.send_error_flag(packet.ID)
             self.update_error_state()
             return  # stop receiving
