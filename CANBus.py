@@ -239,7 +239,7 @@ class ECU:
             self.update_error_state()
             return  # stop receiving
 
-        if (packet.ID == 0x555 and self.name == "Attacker") or (packet.ID == 0x554 and self.name == "CounterECU"):
+        if (packet.ID == 0x555 and self.name == "Attacker") or (packet.ID == 0x554 and self.name == "GuardianECU"):
             if self.can_inject_error:
                 print(f"{self.name} receives error → TEC +8 → Send Second Error Flag")
                 # self.TEC += 8
