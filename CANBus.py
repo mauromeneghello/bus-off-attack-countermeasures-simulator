@@ -135,7 +135,7 @@ class CanBus:
             print(f"\n--- {name} ---")
             for i in range(length):
                 print(f" Bit {idx:03}: {bits[idx]}")
-                time.sleep(0.01)  # Reduce sleep time for quicker output (adjust as needed)
+                time.sleep(0.05)  # Reduce sleep time for quicker output (adjust as needed)
                 idx += 1
 
         print(f"{sender_ecu.name} Transmission COMPLETE.\n")
@@ -186,13 +186,14 @@ class ECU:
         """ Checks if the ECU is in BUS-OFF state. """
         return self.error_state == "BUS-OFF"
 
-    def send(self, data):
+    def send(self, data, preceding_frame = False):
         """ Creates and sends a CAN message, handling errors. """
         if self.is_bus_off():
             print(f"{self.name} is in BUS-OFF! Cannot send.")
             return
 
-        packet = CanPacket(self.arbitration_id, data)
+        id = self.arbitration_id if not preceding_frame else self.arbitration_id - 0x001
+        packet = CanPacket(id, data)
 
         # Simulate a bit error with 10% probability
         """if random.random() < 0.1:  
@@ -219,7 +220,14 @@ class ECU:
     #     print(f"{self.name} Received: {packet} | REC: {self.REC} | TEC: {self.TEC} | State: {self.error_state}")
 
     def receive(self, packet):
-        if packet.ID == 0x555 and self.name == "Victim":
+
+        print('--------------------------')
+        print(self.name)
+        print(packet.ID)
+        print('--------------------------')
+
+
+        if (packet.ID == 0x555 and self.name == "Victim") or (packet.ID == 0x554 and self.name == "Attacker"):
             if self.error_state == "ERROR-ACTIVE":
                 print(f"{self.name} BIT ERROR (ACTIVE)! → TEC +8 → Send Active Error Flag")
                 # self.TEC += 8
@@ -231,7 +239,7 @@ class ECU:
             self.update_error_state()
             return  # stop receiving
 
-        if packet.ID == 0x555 and self.name == "Attacker":
+        if (packet.ID == 0x555 and self.name == "Attacker") or (packet.ID == 0x554 and self.name == "CounterECU"):
             if self.can_inject_error:
                 print(f"{self.name} receives error → TEC +8 → Send Second Error Flag")
                 # self.TEC += 8
