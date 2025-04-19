@@ -1,4 +1,4 @@
-# CyberPhysical and Iot Security Course - Master Thesis in Cybersecurity - UniPd
+# CyberPhysical and Iot Security Course - Master Degree in Cybersecurity - UniPd
 
 ## First Project: Simulating countermeasures against bus-off attack on CAN bus.
 
@@ -37,7 +37,7 @@ bus_off_attack_with_countermeasure2()
 
 ### Credits
 
-Developed as first project for the CyberPhysical and Iot Security Course - Master Thesis in Cybersecurity - University of Padua, 2024–2025
+Developed as first project for the CyberPhysical and Iot Security Course - Master Degree in Cybersecurity - University of Padua, 2024–2025
 
 **Authors**
 
