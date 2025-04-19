@@ -1,1 +1,13 @@
 bus_off_paper.pdf
+Counter_Attack_Against_the_Bus-Off_Attack_on_CAN.pdf
+
+# Byte-compiled / optimized / DLL files
+*.py[cod]
+*$py.class
+logs/*
+data/*
+__pycache__/*
+*.pyc
+.vscode/
+rec_plot_1.png
+tec_plot_1.png
