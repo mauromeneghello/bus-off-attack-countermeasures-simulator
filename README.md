@@ -35,6 +35,11 @@ bus_off_attack_with_countermeasure1()
 bus_off_attack_with_countermeasure2()
 ```
 
+**SIDE NOTE:**
+The execution of the attack with the second countermeasure enabled may end with some errors due to unexpected thread crashes. Although it does not look clean when this happens, you can still scroll back through the console output to see that the defense worked correctly.
+
+This issue occurs because the simulation uses multiple threads running concurrently. Even though the code successfully performs all the attack and defense steps, the threads sometimes terminate with exceptions once the attack finishes.
+
 ### Credits
 
 Developed as first project for the CyberPhysical and Iot Security Course - Master Degree in Cybersecurity - University of Padua, 2024–2025
